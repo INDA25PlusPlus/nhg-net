@@ -1,0 +1,8 @@
+[package]
+name = "eahla-gui"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ggez = { version = "0.9.3", default-features = false, features = ["c_dependencies", "gamepad"] }
+hermanha-chess = { git="https://github.com/INDA25PlusPlus/hermanha-chess.git" }
