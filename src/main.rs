@@ -9,9 +9,7 @@ use hermanha_chess::Position;
 
 mod network;
 
-use std::io::{Read, Write};
-use std::net::{Shutdown, TcpStream};
-use std::time::Duration;
+use std::env;
 
 struct MainState {
     board: hermanha_chess::Board,
@@ -253,32 +251,28 @@ impl event::EventHandler<ggez::GameError> for MainState {
     }
 }
 
+
+// https://doc.rust-lang.org/beta/std/env/fn.args.html
 pub fn main() -> GameResult {
-    // code below copied from example on ggez website
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() > 1 {
+        match args[1].as_str() {
+            "client" => {
+                network::start_client("127.0.0.1:6969");
+                return Ok(());
+            }
+            "server" => {
+                network::start_server("127.0.0.1:6969").unwrap();
+                return Ok(());
+            }
+            _ => println!("'server' or 'client' as argument to start network mode"),
+        }
+    }
 
     let cb = ggez::ContextBuilder::new("eahla_chess_game_gui", "ggez");
     let (ctx, event_loop) = cb.build()?;
     let state = MainState::new()?;
-
-    std::thread::spawn(|| {
-        network::start_server("127.0.0.1:6969").unwrap();
-    });
-    std::thread::sleep(Duration::from_millis(200));
-
-    // dummy client
-    std::thread::spawn(|| {
-        let mut stream = TcpStream::connect("127.0.0.1:6969").unwrap();
-        stream.write_all(b"hey server!").unwrap();
-
-        let mut buf = [0u8; 128];
-        if let Ok(n) = stream.read(&mut buf) {
-            if n > 0 {
-                println!("Client received: {:?}", String::from_utf8_lossy(&buf[..n]));
-            }
-            std::thread::sleep(Duration::from_millis(1000));
-            stream.shutdown(Shutdown::Both).unwrap(); 
-        }
-    });
 
     event::run(ctx, event_loop, state)
 }

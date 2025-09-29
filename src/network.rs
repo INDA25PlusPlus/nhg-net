@@ -1,6 +1,7 @@
-use std::net::{TcpListener, TcpStream};
+use std::net::{Shutdown, TcpListener, TcpStream};
 use std::io::{Read, Write};
 use std::thread;
+use std::time::Duration;
 
 // https://github.com/INDA25PlusPlus/chesstp-spec
 
@@ -32,4 +33,18 @@ pub fn start_server(addr: &str) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+pub fn start_client(addr: &str) {
+    let mut stream = TcpStream::connect(addr).unwrap();
+    stream.write_all(b"hey server!").unwrap();
+
+    let mut buf = [0u8; 128];
+    if let Ok(n) = stream.read(&mut buf) {
+        if n > 0 {
+            println!("Client received: {:?}", String::from_utf8_lossy(&buf[..n]));
+        }
+        thread::sleep(Duration::from_millis(1000));
+        //stream.shutdown(Shutdown::Both).unwrap();
+    }
 }
