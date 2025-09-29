@@ -1,20 +1,35 @@
 use std::net::{Shutdown, TcpListener, TcpStream};
-use std::io::{Read, Write};
+use std::io::{Read, Write, self};
 use std::thread;
 use std::time::Duration;
 
 // https://github.com/INDA25PlusPlus/chesstp-spec
+// https://eleftheriabatsou.hashnode.dev/tutorial-chat-application-client-server-in-rust
 
 fn handle_client(mut stream: TcpStream) -> std::io::Result<()> {
-    let mut buf = [0u8; 128];
-    stream.write_all(b"hey client!").unwrap(); 
-    loop {
-        let n = stream.read(&mut buf)?;
-        if n == 0 {
-            println!("Client disconnected.");
-            break; 
+    let mut s = stream.try_clone()?; // need to clone for reading and writing
+    thread::spawn(move || {
+        let mut buf = [0u8; 128];
+        while let Ok(n) = stream.read(&mut buf) {
+            if n == 0 {
+                println!("Client disconnected.");
+                break;
+            }
+            print!("Received: {}", String::from_utf8_lossy(&buf[..n]));
         }
-        println!("Received: {:?}", String::from_utf8_lossy(&buf[..n]));
+    });
+
+    let stdin = io::stdin();
+    let mut line = String::new();
+    loop {
+        line.clear();
+        if stdin.read_line(&mut line).is_err() {
+            break;
+        }
+        if line.trim().is_empty() {
+            continue;
+        }
+        s.write_all(line.as_bytes())?;
     }
     Ok(())
 }
@@ -35,16 +50,32 @@ pub fn start_server(addr: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-pub fn start_client(addr: &str) {
-    let mut stream = TcpStream::connect(addr).unwrap();
-    stream.write_all(b"hey server!").unwrap();
+pub fn start_client(addr: &str) -> std::io::Result<()>{
+    let mut stream = TcpStream::connect(addr)?;
+    let mut s = stream.try_clone()?;
 
-    let mut buf = [0u8; 128];
-    if let Ok(n) = stream.read(&mut buf) {
-        if n > 0 {
-            println!("Client received: {:?}", String::from_utf8_lossy(&buf[..n]));
+    thread::spawn(move || {
+        let mut buf = [0u8; 128];
+        while let Ok(n) = stream.read(&mut buf) {
+            if n == 0 {
+                println!("Server disconnected.");
+                break;
+            }
+            print!("Received: {}", String::from_utf8_lossy(&buf[..n]));
         }
-        thread::sleep(Duration::from_millis(1000));
-        //stream.shutdown(Shutdown::Both).unwrap();
+    });
+
+    let stdin = io::stdin();
+    let mut line = String::new();
+    loop {
+        line.clear();
+        if stdin.read_line(&mut line).is_err() {
+            break;
+        }
+        if line.trim().is_empty() {
+            continue;
+        }
+        s.write_all(line.as_bytes())?;
     }
+    Ok(())
 }
