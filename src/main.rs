@@ -8,6 +8,7 @@ use hermanha_chess::PieceType;
 use hermanha_chess::Position;
 
 mod network;
+mod protocol;
 
 use std::env;
 

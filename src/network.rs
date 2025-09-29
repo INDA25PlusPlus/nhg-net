@@ -3,6 +3,10 @@ use std::io::{Read, Write, self};
 use std::thread;
 use std::time::Duration;
 
+use crate::protocol;
+use protocol::{MoveMsg};
+
+
 // https://github.com/INDA25PlusPlus/chesstp-spec
 // https://eleftheriabatsou.hashnode.dev/tutorial-chat-application-client-server-in-rust
 
@@ -15,7 +19,12 @@ fn handle_client(mut stream: TcpStream) -> std::io::Result<()> {
                 println!("Client disconnected.");
                 break;
             }
-            print!("Received: {}", String::from_utf8_lossy(&buf[..n]));
+            let raw = String::from_utf8_lossy(&buf[..n]);
+            if let Some(msg) = MoveMsg::deserialize(&raw) {
+                println!("Received move: {}, state: {}, fen: {}", msg.move_str, msg.game_state, msg.fen);
+            } else {
+                println!("Received invalid message: {}", raw);
+            }
         }
     });
 
@@ -26,10 +35,18 @@ fn handle_client(mut stream: TcpStream) -> std::io::Result<()> {
         if stdin.read_line(&mut line).is_err() {
             break;
         }
+        let trimmed = line.trim();
         if line.trim().is_empty() {
             continue;
         }
-        s.write_all(line.as_bytes())?;
+        let msg = MoveMsg {
+            move_str: trimmed.to_string(),
+            game_state: "0-0".to_string(),
+            fen: "8/8/8/8/8/8/8/8".to_string(),
+        };
+        let serialized = msg.serialize();
+        println!("Sending: {}", serialized);
+        s.write_all(serialized.as_bytes())?;
     }
     Ok(())
 }
@@ -58,10 +75,15 @@ pub fn start_client(addr: &str) -> std::io::Result<()>{
         let mut buf = [0u8; 128];
         while let Ok(n) = stream.read(&mut buf) {
             if n == 0 {
-                println!("Server disconnected.");
+                println!("Client disconnected.");
                 break;
             }
-            print!("Received: {}", String::from_utf8_lossy(&buf[..n]));
+            let raw = String::from_utf8_lossy(&buf[..n]);
+            if let Some(msg) = MoveMsg::deserialize(&raw) {
+                println!("Received move: {}, state: {}, fen: {}", msg.move_str, msg.game_state, msg.fen);
+            } else {
+                println!("Received invalid message: {}", raw);
+            }
         }
     });
 
@@ -72,10 +94,18 @@ pub fn start_client(addr: &str) -> std::io::Result<()>{
         if stdin.read_line(&mut line).is_err() {
             break;
         }
+        let trimmed = line.trim();
         if line.trim().is_empty() {
             continue;
         }
-        s.write_all(line.as_bytes())?;
+        let msg = MoveMsg {
+            move_str: trimmed.to_string(),
+            game_state: "0-0".to_string(),
+            fen: "8/8/8/8/8/8/8/8".to_string(),
+        };
+        let serialized = msg.serialize();
+        println!("Sending: {}", serialized);
+        s.write_all(serialized.as_bytes())?;
     }
     Ok(())
 }
