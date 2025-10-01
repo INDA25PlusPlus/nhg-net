@@ -1,21 +1,26 @@
+mod network;
+mod protocol;
+mod helper;
+
 use ggez::event;
 use ggez::glam::*;
 use ggez::graphics;
 use ggez::graphics::PxScale;
 use ggez::graphics::TextFragment;
 use ggez::{Context, GameResult};
-use hermanha_chess::PieceType;
-use hermanha_chess::Position;
 
-mod network;
-mod protocol;
+use hermanha_chess::{PieceType,Position};
+use crate::protocol::MoveMsg;
+use crate::helper::board_move_to_message;
 
 use std::env;
 
 struct MainState {
     board: hermanha_chess::Board,
     selected_piece: Position,
+    net_writer: Option<std::sync::mpsc::Sender<MoveMsg>>,
 }
+
 
 impl MainState {
     fn new() -> GameResult<MainState> {
@@ -24,6 +29,7 @@ impl MainState {
         Ok(MainState {
             board,
             selected_piece: Position { row: 4, col: 4 },
+            net_writer: None,
         })
     }
 }
@@ -223,35 +229,33 @@ impl event::EventHandler<ggez::GameError> for MainState {
         let row: f32 = y / 75.0;
         let col: f32 = (x - 100.0) / 75.0;
         let clicked_pos = Position {
-            row: 7 as i8 - row as i8,
+            row: 7 - row as i8,
             col: col as i8,
         };
 
-        println!(
-            "selected ? : {} {}",
-            self.selected_piece.row, self.selected_piece.col
-        );
-        println!("pos: {} {}", clicked_pos.row, clicked_pos.col);
+        if let Some(_piece) = self.board.get(self.selected_piece) {
+            let promo = Some(PieceType::Queen); // handle real promotion later
+            match self.board.move_piece(self.selected_piece, clicked_pos, promo) {
+                Ok(_) => {
+                    println!("Move applied locally: {:?} -> {:?}", self.selected_piece, clicked_pos);
 
-        match self.board.get(self.selected_piece) {
-            Some(_found_piece) => {
-                println!("if");
-                if let Err(e) =
-                    self.board
-                        .move_piece(self.selected_piece, clicked_pos, Some(PieceType::Queen))
-                {
-                    println!("Failed to move piece: {:?}", e);
+                    // convert to MoveMsg and send over network
+                    if let Some(tx) = &self.net_writer {
+                        let msg = board_move_to_message(self.selected_piece, clicked_pos, promo, &self.board);
+                        if let Err(e) = tx.send(msg) {
+                            eprintln!("Failed to send move over network: {}", e);
+                        }
+                    }
                 }
+                Err(e) => println!("Failed to move piece: {:?}", e),
             }
-            None => (),
         }
 
         self.selected_piece = clicked_pos;
-
         Ok(())
     }
-}
 
+}
 
 // https://doc.rust-lang.org/beta/std/env/fn.args.html
 pub fn main() -> GameResult {
