@@ -19,23 +19,37 @@ struct MainState {
     board: hermanha_chess::Board,
     selected_piece: Position,
     net_writer: Option<std::sync::mpsc::Sender<MoveMsg>>,
+    net_reader: Option<std::sync::mpsc::Receiver<MoveMsg>>,
+    network_mode: Option<String>,
 }
 
 
 impl MainState {
-    fn new() -> GameResult<MainState> {
+    fn new(network_mode: Option<String>) -> GameResult<MainState> {
         let board = hermanha_chess::Board::start_pos();
 
         Ok(MainState {
             board,
             selected_piece: Position { row: 4, col: 4 },
             net_writer: None,
+            net_reader: None,
+            network_mode,
         })
     }
 }
 
 impl event::EventHandler<ggez::GameError> for MainState {
-    fn update(&mut self, _ctx: &mut Context) -> GameResult {
+    fn update(&mut self, _ctx: &mut ggez::Context) -> ggez::GameResult {
+        if let Some(rx) =
+         &self.net_reader {
+            while let Ok(msg) = rx.try_recv() {
+                if let Err(e) = crate::helper::apply_message_to_board(&mut self.board, &msg) {
+                    eprintln!("Failed to apply network move: {}", e);
+                } else {
+                    println!("Applied network move: {}", msg.move_str);
+                }
+            }
+        }
         Ok(())
     }
 
@@ -214,6 +228,17 @@ impl event::EventHandler<ggez::GameError> for MainState {
                 }
             }
         }
+        // debug: server or client mode
+        if let Some(mode) = &self.network_mode {
+            let mode_text = graphics::Text::new(TextFragment::new(format!("Mode: {}", mode))
+                .color(if mode == "server" {
+                    graphics::Color::GREEN
+                } else {
+                    graphics::Color::BLUE
+                })
+                .scale(PxScale::from(24.0)));
+            canvas.draw(&mode_text, Vec2::new(10.0, 10.0));
+        }
 
         canvas.finish(ctx)?;
         Ok(())
@@ -261,23 +286,43 @@ impl event::EventHandler<ggez::GameError> for MainState {
 pub fn main() -> GameResult {
     let args: Vec<String> = env::args().collect();
 
+    let mut network_mode = None;
     if args.len() > 1 {
-        match args[1].as_str() {
-            "client" => {
-                network::start_client("127.0.0.1:6969");
-                return Ok(());
-            }
-            "server" => {
-                network::start_server("127.0.0.1:6969").unwrap();
-                return Ok(());
-            }
-            _ => println!("'server' or 'client' as argument to start network mode"),
-        }
+        network_mode = Some(args[1].clone()); 
     }
 
     let cb = ggez::ContextBuilder::new("eahla_chess_game_gui", "ggez");
     let (ctx, event_loop) = cb.build()?;
-    let state = MainState::new()?;
+    let mut state = MainState::new(network_mode.clone())?;
 
+    if let Some(mode) = network_mode {
+        let (tx_to_network, rx_from_gui) = std::sync::mpsc::channel::<MoveMsg>();
+        let (tx_to_gui, rx_from_network) = std::sync::mpsc::channel::<MoveMsg>();
+
+        state.net_writer = Some(tx_to_network);  // GUI sends local moves to network
+        state.net_reader = Some(rx_from_network); // GUI receives moves from network
+
+        let tx_clone = tx_to_gui.clone();
+
+        match mode.as_str() {
+            "client" => {
+                let rx = rx_from_gui;
+                std::thread::spawn(move || {
+                    network::start_client_with_channel("127.0.0.1:6969", rx, tx_clone).unwrap();
+                });
+            }
+            "server" => {
+                let rx = rx_from_gui;
+                std::thread::spawn(move || {
+                    network::start_server_with_channel("127.0.0.1:6969", rx, tx_clone).unwrap();
+                });
+            }
+            _ => {
+                eprintln!("Unknown argument: {}. Use 'client' or 'server'.", mode);
+            }
+        }
+
+    }
     event::run(ctx, event_loop, state)
+
 }
