@@ -13,7 +13,9 @@ pub fn start_client_with_channel(addr: &str, rx: Receiver<MoveMsg>, tx_to_gui: S
         let mut buf = [0u8; 128];
         while let Ok(n) = reader.read(&mut buf) {
             if n == 0 { break; }
+            println!("Read {} bytes from stream", n);
             let raw = String::from_utf8_lossy(&buf[..n]);
+            println!("Raw msg from SERVER to deserialize: {}", raw);
             if let Some(msg) = MoveMsg::deserialize(&raw) {
                 tx_clone.send(msg).unwrap();
             }
@@ -38,7 +40,9 @@ pub fn start_server_with_channel(addr: &str, rx: Receiver<MoveMsg>, tx_to_gui: S
         let mut buf = [0u8; 128];
         while let Ok(n) = reader.read(&mut buf) {
             if n == 0 { break; }
+            println!("Read {} bytes from stream", n);
             let raw = String::from_utf8_lossy(&buf[..n]);
+            println!("Raw msg from CLIENT to deserialize: {}", raw);
             if let Some(msg) = MoveMsg::deserialize(&raw) {
                 tx_clone.send(msg).unwrap();
             }

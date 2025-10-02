@@ -9,7 +9,7 @@ use ggez::graphics::PxScale;
 use ggez::graphics::TextFragment;
 use ggez::{Context, GameResult};
 
-use hermanha_chess::{PieceType,Position};
+use hermanha_chess::{PieceType,Position,MoveOk};
 use crate::protocol::MoveMsg;
 use crate::helper::board_move_to_message;
 
@@ -259,14 +259,32 @@ impl event::EventHandler<ggez::GameError> for MainState {
         };
 
         if let Some(_piece) = self.board.get(self.selected_piece) {
-            let promo = Some(PieceType::Queen); // handle real promotion later
-            match self.board.move_piece(self.selected_piece, clicked_pos, promo) {
+            match self.board.move_piece(self.selected_piece, clicked_pos, None) {
+                Ok(MoveOk::NeedsPromotion) => {
+                    match self.board.move_piece(self.selected_piece, clicked_pos, Some(PieceType::Queen)) { //note: only support queen promotion 
+                        Ok(_) => {
+                            println!("Promoted pawn at {:?} -> {:?} to Queen", self.selected_piece, clicked_pos);
+
+                            if let Some(tx) = &self.net_writer {
+                                let msg = board_move_to_message(
+                                    self.selected_piece,
+                                    clicked_pos,
+                                    Some(PieceType::Queen),
+                                    &self.board,
+                                );
+                                if let Err(e) = tx.send(msg) {
+                                    eprintln!("Failed to send promotion move: {}", e);
+                                }
+                            }
+                        }
+                        Err(e) => println!("Promotion failed: {:?}", e),
+                    }
+                }
                 Ok(_) => {
                     println!("Move applied locally: {:?} -> {:?}", self.selected_piece, clicked_pos);
 
-                    // convert to MoveMsg and send over network
                     if let Some(tx) = &self.net_writer {
-                        let msg = board_move_to_message(self.selected_piece, clicked_pos, promo, &self.board);
+                        let msg = board_move_to_message(self.selected_piece, clicked_pos, None, &self.board);
                         if let Err(e) = tx.send(msg) {
                             eprintln!("Failed to send move over network: {}", e);
                         }
@@ -275,6 +293,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
                 Err(e) => println!("Failed to move piece: {:?}", e),
             }
         }
+
 
         self.selected_piece = clicked_pos;
         Ok(())
