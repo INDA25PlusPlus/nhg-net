@@ -10,16 +10,18 @@ use ggez::graphics::TextFragment;
 use ggez::{Context, GameResult};
 
 use hermanha_chess::{PieceType,Position,MoveOk,Color};
-use crate::protocol::MoveMsg;
+use crate::protocol::{ProtocolMsg};
 use crate::helper::board_move_to_message;
 
 use std::env;
+use std::thread;
+use std::time::Duration;
 
 struct MainState {
     board: hermanha_chess::Board,
     selected_piece: Position,
-    net_writer: Option<std::sync::mpsc::Sender<MoveMsg>>,
-    net_reader: Option<std::sync::mpsc::Receiver<MoveMsg>>,
+    net_writer: Option<std::sync::mpsc::Sender<ProtocolMsg>>,
+    net_reader: Option<std::sync::mpsc::Receiver<ProtocolMsg>>,
     network_mode: Option<String>,
     my_color: Color,
 }
@@ -46,19 +48,24 @@ impl MainState {
 
 impl event::EventHandler<ggez::GameError> for MainState {
     fn update(&mut self, _ctx: &mut ggez::Context) -> ggez::GameResult {
-        if let Some(rx) =
-         &self.net_reader {
+        if let Some(rx) = &self.net_reader {
             while let Ok(msg) = rx.try_recv() {
-                if let Err(e) = crate::helper::apply_message_to_board(&mut self.board, &msg) {
-                    eprintln!("Failed to apply network move: {}", e);
-                } else {
-                    println!("Opponent move applied: {}", msg.move_str);
+                match msg {
+                    ProtocolMsg::Move(m) => {
+                        if let Err(e) = crate::helper::apply_message_to_board(&mut self.board, &m) {
+                            eprintln!("Failed to apply network move: {}", e);
+                        } else {
+                            println!("Opponent move applied: {}", m.move_str);
+                        }
+                    }
+                    ProtocolMsg::Quit(q) => {
+                        println!("Opponent quit: {}", q.reason);
+                    }
                 }
             }
         }
         Ok(())
     }
-
     fn draw(&mut self, ctx: &mut Context) -> GameResult {
         let cerise = graphics::Color::from([0.87, 0.19, 0.39, 1.0]); // cerise by ChatGPT
 
@@ -246,7 +253,25 @@ impl event::EventHandler<ggez::GameError> for MainState {
             canvas.draw(&mode_text, Vec2::new(10.0, 10.0));
         }
 
+        // QUIT button
+        let quit_rect = graphics::Rect::new(10.0, 10.0, 40.0, 40.0); 
+        let quit_mesh = graphics::Mesh::new_rectangle(
+            ctx,
+            graphics::DrawMode::fill(),
+            quit_rect,
+            graphics::Color::BLACK, 
+        )?;
+        canvas.draw(&quit_mesh, Vec2::ZERO);
+
+        let quit_text = graphics::Text::new(
+            TextFragment::new("X")
+                .color(graphics::Color::WHITE)
+                .scale(PxScale::from(30.0)), 
+        );
+        canvas.draw(&quit_text, Vec2::new(quit_rect.x + 7.0, quit_rect.y + 2.0));
+
         canvas.finish(ctx)?;
+
         Ok(())
     }
 
@@ -263,6 +288,22 @@ impl event::EventHandler<ggez::GameError> for MainState {
             row: 7 - row as i8,
             col: col as i8,
         };
+
+        //quite button
+        if x >= 10.0 && x <= 50.0 && y >= 10.0 && y <= 50.0 {
+            println!("QUIT button clicked");
+
+            if let Some(tx) = &self.net_writer {
+                let quit_msg = crate::protocol::ProtocolMsg::Quit(crate::protocol::QuitMsg {
+                    reason: "User exited".to_string(),
+                });
+                if let Err(e) = tx.send(quit_msg) {
+                    eprintln!("Failed to send QUIT message: {}", e);
+                }
+            }
+            thread::sleep(Duration::from_millis(100)); // give time for message to be sent
+            std::process::exit(0);
+        }
 
         if self.board.move_turn != self.my_color && self.network_mode.is_some() {
             println!("Not your turn! Waiting for opponent.");
@@ -284,7 +325,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
                                     Some(PieceType::Queen),
                                     &self.board,
                                 );
-                                if let Err(e) = tx.send(msg) {
+                                if let Err(e) = tx.send(ProtocolMsg::Move(msg)) {
                                     eprintln!("Failed to send promotion move: {}", e);
                                 }
                             }
@@ -297,7 +338,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
 
                     if let Some(tx) = &self.net_writer {
                         let msg = board_move_to_message(self.selected_piece, clicked_pos, None, &self.board);
-                        if let Err(e) = tx.send(msg) {
+                        if let Err(e) = tx.send(ProtocolMsg::Move(msg)) {
                             eprintln!("Failed to send move over network: {}", e);
                         }
                     }
@@ -327,8 +368,8 @@ pub fn main() -> GameResult {
     let mut state = MainState::new(network_mode.clone())?;
 
     if let Some(mode) = network_mode {
-        let (tx_to_network, rx_from_gui) = std::sync::mpsc::channel::<MoveMsg>();
-        let (tx_to_gui, rx_from_network) = std::sync::mpsc::channel::<MoveMsg>();
+        let (tx_to_network, rx_from_gui) = std::sync::mpsc::channel::<ProtocolMsg>();
+        let (tx_to_gui, rx_from_network) = std::sync::mpsc::channel::<ProtocolMsg>();
 
         state.net_writer = Some(tx_to_network);  // GUI sends local moves to network
         state.net_reader = Some(rx_from_network); // GUI receives moves from network

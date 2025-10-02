@@ -1,5 +1,53 @@
 // https://github.com/INDA25PlusPlus/chesstp-spec
 // https://www.chessprogramming.org/Forsyth-Edwards_Notation
+pub enum ProtocolMsg {
+    Move(MoveMsg),
+    Quit(QuitMsg),
+}
+impl ProtocolMsg {
+    pub fn serialize(&self) -> String {
+        match self {
+            ProtocolMsg::Move(m) => m.serialize(),
+            ProtocolMsg::Quit(q) => q.serialize(),
+        }
+    }
+    pub fn deserialize(raw: &str) -> Option<Self> {
+        if raw.starts_with("ChessMOVE") {
+            MoveMsg::deserialize(raw).map(ProtocolMsg::Move)
+        } else if raw.starts_with("ChessQUIT") {
+            QuitMsg::deserialize(raw).map(ProtocolMsg::Quit)
+        } else {
+            None
+        }
+    }
+}
+
+pub struct QuitMsg {
+    pub reason: String, // optional message ("desync", "panic", "user quit", etc.)
+}
+
+impl QuitMsg {
+    pub fn serialize(&self) -> String {
+        let mut msg = format!("ChessQUIT:{}:", self.reason);
+        let padding_len = 128 - msg.len();
+        msg.push_str(&"0".repeat(padding_len));
+        msg
+    }
+
+    pub fn deserialize(raw: &str) -> Option<Self> {
+        if !raw.starts_with("ChessQUIT") {
+            return None;
+        }
+        let parts: Vec<&str> = raw.split(':').collect();
+        if parts.len() < 2 {
+            return None;
+        }
+        Some(QuitMsg {
+            reason: parts[1].to_string(),
+        })
+    }
+}
+
 pub struct MoveMsg {
     pub move_str: String,   // "E2E40"
     pub game_state: String, // "0-0"
