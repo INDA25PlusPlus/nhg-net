@@ -50,7 +50,7 @@ pub fn apply_message_to_board(board: &mut Board, msg: &MoveMsg) -> Result<(), St
     match board.move_piece(from, to, promo) {
         Ok(_) => {
             println!("Move applied: {:?} -> {:?}", from, to);
-            print_board(board);
+            //print_board(board);
             Ok(())
         }
         Err(e) => Err(format!("illegal move: {:?}", e)),

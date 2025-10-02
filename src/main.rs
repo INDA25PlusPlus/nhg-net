@@ -9,7 +9,7 @@ use ggez::graphics::PxScale;
 use ggez::graphics::TextFragment;
 use ggez::{Context, GameResult};
 
-use hermanha_chess::{PieceType,Position,MoveOk};
+use hermanha_chess::{PieceType,Position,MoveOk,Color};
 use crate::protocol::MoveMsg;
 use crate::helper::board_move_to_message;
 
@@ -21,12 +21,17 @@ struct MainState {
     net_writer: Option<std::sync::mpsc::Sender<MoveMsg>>,
     net_reader: Option<std::sync::mpsc::Receiver<MoveMsg>>,
     network_mode: Option<String>,
+    my_color: Color,
 }
-
 
 impl MainState {
     fn new(network_mode: Option<String>) -> GameResult<MainState> {
         let board = hermanha_chess::Board::start_pos();
+        let my_color = match network_mode.as_deref() {
+            Some("client") => Color::White,  
+            Some("server") => Color::Black,  
+            _ => Color::White,               // fallback (single-player)
+        };
 
         Ok(MainState {
             board,
@@ -34,6 +39,7 @@ impl MainState {
             net_writer: None,
             net_reader: None,
             network_mode,
+            my_color,
         })
     }
 }
@@ -46,7 +52,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
                 if let Err(e) = crate::helper::apply_message_to_board(&mut self.board, &msg) {
                     eprintln!("Failed to apply network move: {}", e);
                 } else {
-                    println!("Applied network move: {}", msg.move_str);
+                    println!("Opponent move applied: {}", msg.move_str);
                 }
             }
         }
@@ -257,6 +263,12 @@ impl event::EventHandler<ggez::GameError> for MainState {
             row: 7 - row as i8,
             col: col as i8,
         };
+
+        if self.board.move_turn != self.my_color && self.network_mode.is_some() {
+            println!("Not your turn! Waiting for opponent.");
+            self.selected_piece = clicked_pos;
+            return Ok(());
+        }
 
         if let Some(_piece) = self.board.get(self.selected_piece) {
             match self.board.move_piece(self.selected_piece, clicked_pos, None) {
